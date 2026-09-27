@@ -40,9 +40,14 @@ class Price(StrictModel):
     def valid_renewal_date(cls, value):
         return date.fromisoformat(value).isoformat() if value else None
 
+class PowerSettings(StrictModel):
+    usb_sleep_enabled: bool = True
+    usb_sleep_minutes: int = Field(5,ge=0,le=1440,strict=True)
+
 class Settings(StrictModel):
     accounts: dict[Provider,AccountSettings] = Field(default_factory=dict)
     prices: dict[Provider,Price] = Field(default_factory=dict)
+    power: PowerSettings | None = None
 
 class Pairing(StrictModel):
     server_url: str = Field(max_length=200)
@@ -76,6 +81,7 @@ class Monitor:
     def public_settings(self):
         with self.lock:
             result=copy.deepcopy(self.settings)
+        result.setdefault('power',PowerSettings().model_dump())
         for p in ('codex','glm','qoder'):
             cfg=result.setdefault('accounts',{}).setdefault(p,{'enabled':False,'account':'default'})
             cfg['configured']=bool(cfg.pop('token',None)) or p=='codex'
@@ -91,10 +97,16 @@ class Monitor:
                 if old.get('account')!=value['account']:
                     with self.store.db() as db: db.execute('DELETE FROM quotas WHERE provider=?',(p,))
             self.settings['prices'].update({k:v.model_dump() for k,v in settings.prices.items()})
+            if settings.power is not None: self.settings['power']=settings.power.model_dump()
             temp=self.settings_file.with_suffix('.tmp')
             temp.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
             temp.replace(self.settings_file)
         self.wake.set()
+
+    def power_headers(self):
+        power=self.public_settings()['power']
+        return {'X-RLCD-Usb-Sleep-Enabled':'1' if power['usb_sleep_enabled'] else '0',
+                'X-RLCD-Usb-Sleep-Seconds':str(power['usb_sleep_minutes']*60)}
 
     def collect_one(self,p,cfg):
         try: q=collect(p,cfg)

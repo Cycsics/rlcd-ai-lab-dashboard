@@ -254,9 +254,14 @@ def frame_bin(
     battery: Optional[int] = Query(default=None, ge=0, le=100),
     temp: Optional[float] = Query(default=None, ge=-40, le=85),
     humidity: Optional[float] = Query(default=None, ge=0, le=100),
+    usb: Optional[bool] = Query(default=None),
+    power_version: Optional[int] = Query(default=None,ge=1,le=10),
 ) -> Response:
     if monitor:
+        if power_version is not None:
+            monitor.environment.update({'usb_connected':usb,'power_firmware_version':power_version,'screen_seen_at':time.time()})
         return Response(content=monitor.image('bin',battery,temp,humidity),media_type='application/octet-stream',headers={
+            **monitor.power_headers(),
             'X-RLCD-Layout':'monitor-v1','X-RLCD-Sound-Cue':'none',
             'X-RLCD-Alert-Level':'normal','X-RLCD-Alert-Key':'none',
             'X-RLCD-Pet-State':'idle','X-RLCD-Pet-Mode':'normal'})

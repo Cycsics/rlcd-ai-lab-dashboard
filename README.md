@@ -60,6 +60,18 @@ work/rlcd_companion/server/.venv/Scripts/python.exe -m pip install -r work/rlcd_
 
 停止和诊断分别使用 **stop-dashboard.cmd**、**diagnose-dashboard.cmd**。开发板烧录与连接见 [Windows 部署说明](docs/windows-monitor.md)。
 
+## 电脑 USB 断连后息屏
+
+在网页“屏幕息屏设置”中选择自动息屏开关和等待时间，默认 **5 分钟**，设为 **0** 可在断连确认后立即息屏；关闭开关可保持常亮。需要刷入支持此功能的固件，网页会显示固件上报状态。
+
+- 通过电脑 USB 的 SOF 信号判断连接，不依赖是否打开串口；电脑休眠也可能触发，不能用来判断独立充电器是否通电。
+- 断连持续 3 秒才开始计时；启动时保留至少 10 秒缓冲，防止枚举过程误触发。
+- 息屏时关闭显示、Wi-Fi 和功放，CPU 降至 80 MHz，保留 USB 检测。它不是物理断电，也不是 MCU 深度睡眠，不承诺特定待机电流。
+- 重新连接电脑 USB 或按板上 KEY/BOOT 键恢复显示。按键唤醒后，本次断连期间不再自动息屏，直到下一次连接并断开 USB。
+- 配置随取图下发并保存在设备中，离线重启后仍有效；已息屏时请先唤醒，再修改设置。拔线后继续计时需要安装电池。
+
+检测方式与休眠限制参考 [Espressif USB Serial/JTAG 文档](https://docs.espressif.com/projects/esp-idf/en/v5.2/esp32s3/api-guides/usb-serial-jtag-console.html)；屏幕采用 ST7305 Display OFF / Sleep IN 指令。
+
 ## 可选：添加局域网或外网设备
 
 展开网页中的“添加远程设备（可选）”，填写目标设备能访问的看板地址，下载配对包，复制到目标 Windows 并运行 `install.cmd`。

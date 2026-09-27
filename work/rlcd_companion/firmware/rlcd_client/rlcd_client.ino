@@ -3,12 +3,15 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <math.h>
+#include <Preferences.h>
+#include "driver/usb_serial_jtag.h"
 
 #include "ST7305_U8g2.h"
 #include "adc_bsp.h"
 #include "cute_audio.h"
 #include "pet_pose.h"
 #include "monitor_offline.h"
+#include "monitor_power.h"
 
 struct WifiNetworkConfig {
   const char *ssid;
@@ -63,6 +66,11 @@ static uint8_t incoming_frame[FRAME_BYTES];
 static bool monitor_layout = true;
 static bool frame_ready = false;
 static uint32_t last_good_frame_ms = 0;
+static Preferences power_preferences;
+static UsbStandbyPolicy usb_standby;
+static bool usb_sleep_enabled = true;
+static uint32_t usb_sleep_seconds = 300;
+static uint32_t awake_cpu_mhz = 240;
 static void drawFrameBuffer();
 
 static uint32_t last_frame_ms = 0;
@@ -409,6 +417,7 @@ static String frameUrlWithTelemetry()
   String url = FRAME_URL;
   url += (url.indexOf('?') >= 0) ? "&battery=" : "?battery=";
   url += String(battery);
+  url += usb_serial_jtag_is_connected() ? "&usb=1&power_version=1" : "&usb=0&power_version=1";
   if (env_ready && !isnan(indoor_temp_c) && !isnan(indoor_humidity)) {
     url += "&temp=";
     url += String(indoor_temp_c, 1);
@@ -470,8 +479,10 @@ static bool fetchFrame()
     "X-RLCD-Alert-Key",
     "X-RLCD-Sound-Cue",
     "X-RLCD-Layout",
+    "X-RLCD-Usb-Sleep-Enabled",
+    "X-RLCD-Usb-Sleep-Seconds",
   };
-  http.collectHeaders(header_keys, 6);
+  http.collectHeaders(header_keys, 8);
 
   int status = http.GET();
   if (status != HTTP_CODE_OK) {
@@ -501,6 +512,8 @@ static bool fetchFrame()
     sound_cue = next_sound_cue;
   }
   bool next_monitor_layout = http.header("X-RLCD-Layout") == "monitor-v1";
+  String power_enabled_header = http.header("X-RLCD-Usb-Sleep-Enabled");
+  String power_seconds_header = http.header("X-RLCD-Usb-Sleep-Seconds");
   Serial.printf("Pet state=%s mode=%s alert=%s key=%s sound=%s\n",
                 pet_state.c_str(),
                 pet_mode.c_str(),
@@ -537,6 +550,20 @@ static bool fetchFrame()
     return false;
   }
   frame_fetch_counter = (frame_fetch_counter + 1) % 100;
+  // Apply only validated settings from a complete successful response.
+  bool valid_seconds = power_seconds_header.length() > 0 && power_seconds_header.length() <= 5;
+  for (size_t i=0; i<power_seconds_header.length(); i++) {
+    if (power_seconds_header[i]<'0' || power_seconds_header[i]>'9') valid_seconds=false;
+  }
+  if ((power_enabled_header=="0" || power_enabled_header=="1") && valid_seconds) {
+    uint32_t seconds=power_seconds_header.toInt();
+    bool enabled=power_enabled_header=="1";
+    if (seconds<=86400 && (enabled!=usb_sleep_enabled || seconds!=usb_sleep_seconds)) {
+      usb_sleep_enabled=enabled; usb_sleep_seconds=seconds;
+      power_preferences.putBool("enabled",enabled);
+      power_preferences.putUInt("seconds",seconds);
+    }
+  }
   memcpy(frame, incoming_frame, FRAME_BYTES);
   monitor_layout = next_monitor_layout;
   frame_ready = true;
@@ -989,6 +1016,11 @@ void setup()
 {
   Serial.begin(115200);
   delay(300);
+  power_preferences.begin("rlcd-power",false);
+  usb_sleep_enabled=power_preferences.getBool("enabled",true);
+  usb_sleep_seconds=power_preferences.getUInt("seconds",300);
+  if (usb_sleep_seconds>86400) usb_sleep_seconds=300;
+  awake_cpu_mhz=getCpuFrequencyMhz();
 
   pinMode(KEY_PIN, INPUT_PULLUP);
   pinMode(BOOT_PIN, INPUT_PULLUP);
@@ -1014,6 +1046,30 @@ void setup()
 
 void loop()
 {
+  const bool wake_key=digitalRead(KEY_PIN)==LOW || digitalRead(BOOT_PIN)==LOW || ack_requested;
+  UsbStandbyPolicy::Action power_action=usb_standby.update(
+      millis(),usb_serial_jtag_is_connected(),wake_key,usb_sleep_enabled,usb_sleep_seconds);
+  if (power_action==UsbStandbyPolicy::EnterStandby) {
+    pending_sound_cue="none";
+    digitalWrite(46,LOW); // amplifier off
+    lcd.standby(true);
+    WiFi.disconnect(false);
+    WiFi.mode(WIFI_OFF);
+    setCpuFrequencyMhz(80); // keep native USB clock/detection alive
+  } else if (power_action==UsbStandbyPolicy::LeaveStandby) {
+    ack_requested=false;
+    setCpuFrequencyMhz(awake_cpu_mhz);
+    lcd.standby(false);
+    drawMessage("Waking up", "Connecting...");
+    connectWiFi();
+    if (fetchFrame()) drawFrameBuffer();
+    last_frame_ms=millis();
+  }
+  if (usb_standby.sleeping) {
+    ack_requested=false;
+    delay(100);
+    return; // no frames, redraws, environment reads or sounds while off
+  }
   if (!monitor_layout) handleKey();
   else ack_requested = false;
   uint32_t now = millis();

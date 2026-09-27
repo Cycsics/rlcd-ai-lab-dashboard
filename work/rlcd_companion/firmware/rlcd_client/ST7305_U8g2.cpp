@@ -217,6 +217,17 @@ void ST7305_U8g2::begin(uint8_t tile_buf_height, const u8g2_cb_t *rotation)
   u8g2_SetPowerSave(u, 0);
 }
 
+void ST7305_U8g2::standby(bool enabled)
+{
+  if (enabled) {
+    _cmd(0x28);  // display off
+    _cmd(0x10);  // ST7305 sleep in
+    delay(120);
+  } else {
+    fullInit();
+  }
+}
+
 void ST7305_U8g2::fullInit()
 {
   reset();

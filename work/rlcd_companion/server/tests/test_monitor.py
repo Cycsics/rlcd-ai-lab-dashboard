@@ -248,6 +248,30 @@ def test_optional_remote_addresses(tmp_path):
     for address in ['http://8.8.8.8','http://127.0.0.1:8787','https://user:password@example.com','https://example.com/?token=secret']:
         assert c.post('/api/lab-package',json={'server_url':address,'machine_id':'remote'}).status_code==422
 
+def test_power_settings_defaults_persistence_and_validation(tmp_path):
+    c,m=client(tmp_path)
+    assert c.get('/api/monitor').json()['settings']['power']=={'usb_sleep_enabled':True,'usb_sleep_minutes':5}
+    assert m.power_headers()['X-RLCD-Usb-Sleep-Seconds']=='300'
+    assert c.put('/api/settings',json={'power':{'usb_sleep_enabled':True,'usb_sleep_minutes':0}}).status_code==200
+    assert m.power_headers()['X-RLCD-Usb-Sleep-Seconds']=='0'
+    assert c.put('/api/settings',json={'prices':{}}).status_code==200
+    assert Monitor(tmp_path).power_headers()['X-RLCD-Usb-Sleep-Seconds']=='0'
+    assert c.put('/api/settings',json={'power':{'usb_sleep_enabled':False,'usb_sleep_minutes':5}}).status_code==200
+    assert m.power_headers()['X-RLCD-Usb-Sleep-Enabled']=='0'
+    for bad in [-1,1441,1.5]:
+        assert c.put('/api/settings',json={'power':{'usb_sleep_minutes':bad}}).status_code==422
+
+def test_power_frame_contract(tmp_path,monkeypatch):
+    import app as application
+    monitor=Monitor(tmp_path)
+    monkeypatch.setattr(application,'monitor',monitor)
+    response=TestClient(application.app).get('/frame.bin?usb=1&power_version=1')
+    assert response.status_code==200 and len(response.content)==15000
+    assert response.headers['X-RLCD-Usb-Sleep-Enabled']=='1'
+    assert response.headers['X-RLCD-Usb-Sleep-Seconds']=='300'
+    assert monitor.environment['usb_connected'] is True
+    assert monitor.environment['power_firmware_version']==1
+
 def test_local_agent_reports_without_remote_install(tmp_path,monkeypatch):
     import monitor_local
     monkeypatch.setenv('CODEX_HOME',str(tmp_path/'codex'))

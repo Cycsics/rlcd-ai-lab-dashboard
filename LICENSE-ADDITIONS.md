@@ -6,6 +6,8 @@ The MIT license below applies only to independently added `server/monitor_*.py`,
 
 Vendor libraries retain their own licenses. Proprietary Codex pet sprites are not distributed.
 
+The independent USB standby policy `firmware/rlcd_client/monitor_power.h` and its tests `server/tests/test_power_policy.py` and `server/tests/cpp/test_monitor_power.cpp` are also covered by the MIT license below (paths relative to `work/rlcd_companion/`).
+
 ## MIT License — independent additions only
 
 Copyright (c) 2026 Cycsics
