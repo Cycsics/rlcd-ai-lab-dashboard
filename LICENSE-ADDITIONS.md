@@ -8,6 +8,8 @@ Vendor libraries retain their own licenses. Proprietary Codex pet sprites are no
 
 The independent USB standby policy `firmware/rlcd_client/monitor_power.h` and its tests `server/tests/test_power_policy.py` and `server/tests/cpp/test_monitor_power.cpp` are also covered by the MIT license below (paths relative to `work/rlcd_companion/`).
 
+The independent calendar tests in `server/tests/test_monitor_billing.py` are covered by the same MIT license.
+
 ## MIT License — independent additions only
 
 Copyright (c) 2026 Cycsics

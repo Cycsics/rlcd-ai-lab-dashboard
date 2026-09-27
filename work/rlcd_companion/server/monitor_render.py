@@ -4,6 +4,7 @@ from pathlib import Path
 from functools import lru_cache
 from PIL import Image, ImageDraw
 from monitor_periods import billing_periods
+from monitor_billing import next_renewal_date
 from pet import draw_pixel_pet
 from renderer import _font, _draw_text, _pack_image, TZ
 
@@ -92,7 +93,7 @@ def render_monitor(summary, environment, settings, fmt='png'):
             text(x,111,'查询失败' if q and q.get('error') else '等待账户数据',11,width)
         price=settings.get('prices',{}).get(provider,{})
         cost=f"{price.get('currency','')}{price['amount']:g}/{price.get('period','月')}" if price.get('amount') is not None else '费用未设'
-        renewal=price.get('renewal_date')
+        renewal=price.get('next_renewal_date') or next_renewal_date(price,dt.date())
         renewal=f'{int(renewal[5:7])}/{int(renewal[8:10])}续费' if renewal else '续费待填'
         text(x,141,f'{cost} · {renewal}',10,width)
     tasks=summary['tasks']; machines=summary['machines']

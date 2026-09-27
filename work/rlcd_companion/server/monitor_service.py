@@ -22,6 +22,7 @@ from monitor_collectors import collect, CollectorError
 from monitor_render import render_monitor
 from monitor_periods import billing_periods
 from monitor_local import LocalMonitor
+from monitor_billing import next_renewal_date
 
 class AccountSettings(StrictModel):
     region: Literal['global','cn'] = 'global'
@@ -34,6 +35,7 @@ class Price(StrictModel):
     currency: str = Field('¥',pattern=r'^(¥|\$|€|CNY|USD|EUR)$')
     period: str = Field('月',pattern=r'^(月|年)$')
     renewal_date: str | None = None
+    auto_renewal: bool = True
 
     @field_validator('renewal_date')
     @classmethod
@@ -52,6 +54,9 @@ class Settings(StrictModel):
 class Pairing(StrictModel):
     server_url: str = Field(max_length=200)
     machine_id: str = Field('lab-pc',min_length=1,max_length=80,pattern=r'^[\w.-]+$')
+
+def account_signature(cfg):
+    return (cfg.get('enabled',False),cfg.get('account','default'),cfg.get('region','global'),cfg.get('token') or '')
 
 def local_request(request):
     if not request.client or request.client.host not in ('127.0.0.1','::1','testclient'):
@@ -82,29 +87,39 @@ class Monitor:
         with self.lock:
             result=copy.deepcopy(self.settings)
         result.setdefault('power',PowerSettings().model_dump())
+        for price in result.get('prices',{}).values():
+            price.setdefault('auto_renewal',True)
+            price['next_renewal_date']=next_renewal_date(price)
         for p in ('codex','glm','qoder'):
             cfg=result.setdefault('accounts',{}).setdefault(p,{'enabled':False,'account':'default'})
             cfg['configured']=bool(cfg.pop('token',None)) or p=='codex'
         return result
 
     def save(self,settings):
+        refresh=False
         with self.lock:
+            updated=copy.deepcopy(self.settings)
+            reset_providers=[]
             for p,cfg in settings.accounts.items():
                 value=cfg.model_dump(); token=value.pop('token')
-                old=self.settings.setdefault('accounts',{}).get(p,{})
+                old=updated.setdefault('accounts',{}).get(p,{})
                 if token is None: token=old.get('token','')
-                value['token']=token; self.settings['accounts'][p]=value
-                if old.get('account')!=value['account']:
-                    with self.store.db() as db: db.execute('DELETE FROM quotas WHERE provider=?',(p,))
-            self.settings['prices'].update({k:v.model_dump() for k,v in settings.prices.items()})
-            if settings.power is not None: self.settings['power']=settings.power.model_dump()
+                value['token']=token; updated['accounts'][p]=value
+                if account_signature(old)!=account_signature(value): refresh=True
+                if old.get('account','default')!=value['account'] or old.get('region','global')!=value['region']:
+                    reset_providers.append(p)
+            updated.setdefault('prices',{}).update({k:v.model_dump() for k,v in settings.prices.items()})
+            if settings.power is not None: updated['power']=settings.power.model_dump()
             temp=self.settings_file.with_suffix('.tmp')
-            temp.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
+            temp.write_text(json.dumps(updated,ensure_ascii=False,indent=2),encoding='utf-8')
             temp.replace(self.settings_file)
-        self.wake.set()
+            self.settings=updated
+            for p in reset_providers:
+                with self.store.db() as db: db.execute('DELETE FROM quotas WHERE provider=?',(p,))
+        if refresh: self.wake.set()
 
     def power_headers(self):
-        power=self.public_settings()['power']
+        with self.lock: power=self.settings.get('power') or PowerSettings().model_dump()
         return {'X-RLCD-Usb-Sleep-Enabled':'1' if power['usb_sleep_enabled'] else '0',
                 'X-RLCD-Usb-Sleep-Seconds':str(power['usb_sleep_minutes']*60)}
 
@@ -115,7 +130,10 @@ class Monitor:
             reason={'glm':'GLM 查询失败，请核对个人套餐 Key 和网络','qoder':'Qoder 查询失败，请核对 SDK 与同一账户授权','codex':'Codex 查询失败，请检查本机登录和程序版本'}[p]
             if isinstance(exc,CollectorError): reason=str(exc)
             q=Quota(provider=p,account=cfg.get('account','default'),fetched_at=time.time(),error=reason)
-        self.store.quota(q)
+        with self.lock:
+            # Discard in-flight results for settings changed while a request was running.
+            if account_signature(self.settings.get('accounts',{}).get(p,{}))!=account_signature(cfg): return
+            self.store.quota(q)
 
     def collect_all(self):
         if not self.collect_lock.acquire(blocking=False): return

@@ -272,6 +272,48 @@ def test_power_frame_contract(tmp_path,monkeypatch):
     assert monitor.environment['usb_connected'] is True
     assert monitor.environment['power_firmware_version']==1
 
+def test_cosmetic_settings_do_not_refresh_accounts(tmp_path):
+    c,m=client(tmp_path)
+    assert c.put('/api/settings',json={'prices':{'codex':{'renewal_date':'2026-01-31'}}}).status_code==200
+    assert not m.wake.is_set()
+    assert c.put('/api/settings',json={'power':{'usb_sleep_minutes':7}}).status_code==200
+    assert not m.wake.is_set()
+    assert c.put('/api/settings',json={'accounts':{'codex':{'enabled':True,'account':'default'}}}).status_code==200
+    assert not m.wake.is_set()
+    assert c.put('/api/settings',json={'accounts':{'codex':{'enabled':True,'account':'second'}}}).status_code==200
+    assert m.wake.is_set()
+
+def test_failed_settings_write_preserves_current_state(tmp_path,monkeypatch):
+    import pytest
+    from monitor_service import Settings
+    _,m=client(tmp_path)
+    before=json.dumps(m.settings)
+    def fail(*args): raise OSError('Disk write unavailable')
+    monkeypatch.setattr(Path,'replace',fail)
+    with pytest.raises(OSError): m.save(Settings.model_validate({'prices':{'codex':{'amount':1}}}))
+    assert json.dumps(m.settings)==before and not m.wake.is_set()
+
+def test_old_account_response_cannot_replace_new_account(tmp_path,monkeypatch):
+    import monitor_service
+    _,m=client(tmp_path)
+    old={'enabled':True,'account':'old'}
+    m.settings['accounts']['codex']={'enabled':True,'account':'new'}
+    monkeypatch.setattr(monitor_service,'collect',lambda *args:Quota(provider='codex',account='old',fetched_at=time.time(),windows=[Window(label='5小时',remaining_percent=40)]))
+    m.collect_one('codex',old)
+    assert 'codex' not in m.store.summary()['quotas']
+
+def test_noop_save_during_collection_keeps_valid_response(tmp_path,monkeypatch):
+    import monitor_service
+    _,m=client(tmp_path)
+    old=dict(m.settings['accounts']['codex'])
+    def collect(*args):
+        m.save(monitor_service.Settings.model_validate({'accounts':{'codex':old}}))
+        return Quota(provider='codex',account='default',fetched_at=time.time(),windows=[Window(label='5小时',remaining_percent=40)])
+    monkeypatch.setattr(monitor_service,'collect',collect)
+    m.collect_one('codex',old)
+    assert m.store.summary()['quotas']['codex']['windows'][0]['remaining_percent']==40
+    assert not m.wake.is_set()
+
 def test_local_agent_reports_without_remote_install(tmp_path,monkeypatch):
     import monitor_local
     monkeypatch.setenv('CODEX_HOME',str(tmp_path/'codex'))
