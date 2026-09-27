@@ -44,7 +44,7 @@ class Quota(StrictModel):
 class TaskEvent(StrictModel):
     event_id: str = Field(min_length=1, max_length=160)
     machine_id: str = Field(min_length=1, max_length=80)
-    tool: Literal['codex','qoder']
+    tool: Literal['codex','qoder','chatgpt']
     session_id: str = Field(min_length=1, max_length=160)
     turn_id: str = Field(min_length=1, max_length=160)
     sequence: int = Field(ge=0)
@@ -54,7 +54,7 @@ class TaskEvent(StrictModel):
 
 class Heartbeat(StrictModel):
     machine_id: str = Field(min_length=1, max_length=80)
-    clients: dict[Literal['codex','qoder'], Literal['connected','closed','unknown']] = Field(default_factory=dict)
+    clients: dict[Literal['codex','qoder','chatgpt'], Literal['connected','closed','unknown']] = Field(default_factory=dict)
 
 class Store:
     def __init__(self, path):
@@ -120,7 +120,7 @@ class Store:
         for task in raw:
             key = (task['machine_id'],task['tool'],task['session_id'])
             terminal = task['status'] in ('completed','interrupted','failed')
-            if key in seen or (terminal and now-task['occurred_at']>86400):
+            if key in seen or ((terminal or (task['tool']=='chatgpt' and task['status']=='idle')) and now-task['occurred_at']>86400):
                 history.append(task)
                 seen.add(key)
                 continue
@@ -130,6 +130,7 @@ class Store:
             display=task['status']
             if not task['online']: display='offline'
             elif machine['clients'].get(task['tool'])=='closed' and not terminal: display='unknown'
+            elif task['tool']=='chatgpt' and machine['clients'].get('chatgpt')!='connected': display='unknown'
             task['display_status']=display
             task['status_label']=LABELS[display]
             tasks.append(task)

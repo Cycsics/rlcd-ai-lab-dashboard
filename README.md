@@ -82,6 +82,24 @@ work/rlcd_companion/server/.venv/Scripts/python.exe -m pip install -r work/rlcd_
 
 余额模板依据 [DeepSeek 官方文档](https://api-docs.deepseek.com/api/get-user-balance/)、[硅基流动接口定义](https://github.com/siliconflow/siliconcloud/blob/main/openapi.yaml) 和 [OpenRouter Credits 接口](https://openrouter.ai/docs/api/api-reference/credits/get-credits)。自定义地址只允许 HTTPS（本机或私网可用 HTTP），不跟随重定向，避免凭据转发到其他地址。
 
+## 可选：Codex 应用中的 ChatGPT 会话
+
+Windows 支持实验性的本机只读状态桥接，每 30 秒读取 Codex 应用自身的 ChatGPT 会话列表，显示在同一个任务区。订阅版和 API 版都支持；不需要 ChatGPT API Key。
+
+在 **Codex 应用提供的终端环境**中，从项目根目录执行以下命令，然后重启看板服务：
+
+```powershell
+work/rlcd_companion/server/.venv/Scripts/python.exe work/rlcd_companion/server/monitor_chatgpt.py --pair
+```
+
+普通终端如果没有应用提供的管道及会话上下文，绑定会失败。绑定信息只保存在本机 `server/data/chatgpt-bridge.json`，不可公开。删除该文件并重启服务可停用。
+
+- 只调用应用的 `list_threads`，丢弃会话摘要，只保留标题、会话 ID、状态和时间；不调用读取正文、附件、发送消息或批准操作的工具。
+- 范围是应用列出的所有置顶会话及最近 50 项非置顶会话中的 ChatGPT 会话；不是全账户历史扫描，也不监控独立浏览器或独立 ChatGPT 客户端。
+- 按应用明确提供的状态显示。**空闲不等于本轮完成**；不会把用户消息的 `completed` 当作助手回复已完成，也不推测百分比。首次接入仅展示近期空闲会话与可识别的活动状态。
+- 断连立即标记状态源未知；列表中消失的任务不视为完成。并行会话互不覆盖，等待后恢复沿用本轮，空闲后再次运行创建新轮次。
+- 使用的是本机已安装应用工具的内部管道协议，不是承诺稳定的公开接口。Codex 需要保持运行；应用升级、绑定会话不可用或多个应用管道无法区分时，网页显示错误，需要重新绑定。
+
 ## 电脑 USB 断连后息屏
 
 在网页“屏幕息屏设置”中选择自动息屏开关和等待时间，默认 **5 分钟**，设为 **0** 可在断连确认后立即息屏；关闭开关可保持常亮。需要刷入支持此功能的固件，网页会显示固件上报状态。

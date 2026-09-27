@@ -22,6 +22,7 @@ from monitor_collectors import collect, CollectorError
 from monitor_render import render_monitor
 from monitor_periods import billing_periods
 from monitor_local import LocalMonitor
+from monitor_chatgpt import ChatGPTMonitor
 from monitor_billing import next_renewal_date
 from monitor_catalog import NAMES,SUBSCRIPTIONS,APIS
 from monitor_api import QueryError,valid_query_url
@@ -112,6 +113,7 @@ class Monitor:
         self.stop=threading.Event(); self.wake=threading.Event(); self.thread=None
         self.collect_lock=threading.Lock()
         self.local=LocalMonitor(self)
+        self.chatgpt=ChatGPTMonitor(self)
 
     def public_settings(self):
         with self.lock:
@@ -199,6 +201,7 @@ class Monitor:
     def start(self):
         if not self.thread:
             self.local.start()
+            self.chatgpt.start()
             self.thread=threading.Thread(target=self.worker,daemon=True);self.thread.start()
 
     def shutdown(self):
@@ -225,7 +228,7 @@ class Monitor:
         @router.get('/api/monitor')
         def summary(request:Request):
             local_request(request)
-            return {**self.store.summary(),'billing_periods':billing_periods(time.time()),'settings':self.public_settings(),'environment':self.environment,'local_monitor':{'machine_id':'local-pc','error':self.local.error}}
+            return {**self.store.summary(),'billing_periods':billing_periods(time.time()),'settings':self.public_settings(),'environment':self.environment,'local_monitor':{'machine_id':'local-pc','error':self.local.error},'chatgpt_monitor':{'enabled':self.chatgpt.config.exists(),'last_seen':self.chatgpt.last_seen,'error':self.chatgpt.error}}
         @router.put('/api/settings')
         def settings(request:Request,payload:Settings):
             local_request(request);self.save(payload);return {'ok':True}

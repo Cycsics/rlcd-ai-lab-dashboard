@@ -8,7 +8,7 @@ from monitor_billing import next_renewal_date
 from pet import draw_pixel_pet
 from renderer import _font, _draw_text, _pack_image, TZ
 
-from monitor_catalog import NAMES,APIS
+from monitor_catalog import NAMES,APIS,TASK_NAMES
 
 def draw_api_column(text,x,q,width,now):
     rows=q.get('balances',[]) if q else []
@@ -140,10 +140,10 @@ def render_monitor(summary, environment, settings, fmt='png'):
         text(12,229,'客户端状态见电脑详情页',12)
     for i,t in enumerate(tasks[:3]):
         y=184+i*30
-        text(6,y,f"{NAMES[t['tool']]} · {t['project'] or '未命名项目'}",12,174)
+        text(6,y,f"{TASK_NAMES.get(t['tool'],t['tool'])} · {t['project'] or '未命名项目'}",12,174)
         text(190,y+3,t['status_label'],14,94)
         age=max(0,int(now-t['occurred_at']))
-        text(6,y+16,f"{'本机' if t['machine_id']=='local-pc' else t['machine_id']}  {age//60}分钟前" if age>=60 else f"{'本机' if t['machine_id']=='local-pc' else t['machine_id']}  刚刚",10,174)
+        text(6,y+16,f"{'本机' if t['machine_id'] in ('local-pc','local-chatgpt') else t['machine_id']}  {age//60}分钟前" if age>=60 else f"{'本机' if t['machine_id'] in ('local-pc','local-chatgpt') else t['machine_id']}  刚刚",10,174)
     d.line((295,163,295,271),fill=0)
     text(320,170,'Codex',13,74)
     pet_frame=codex_pet_frame()
