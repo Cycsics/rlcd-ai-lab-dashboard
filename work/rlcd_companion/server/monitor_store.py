@@ -56,6 +56,13 @@ class Heartbeat(StrictModel):
     machine_id: str = Field(min_length=1, max_length=80)
     clients: dict[Literal['codex','qoder','chatgpt'], Literal['connected','closed','unknown']] = Field(default_factory=dict)
 
+class SessionLink(StrictModel):
+    machine_id: str = Field(min_length=1,max_length=80)
+    tool: Literal['codex','qoder'] = 'codex'
+    session_id: str = Field(min_length=1,max_length=160)
+    parent_session_id: str | None = Field(None,min_length=1,max_length=160)
+    is_subagent: bool = False
+
 class Store:
     def __init__(self, path):
         self.path = str(path)
@@ -67,6 +74,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS tasks(machine TEXT,tool TEXT,session TEXT,turn TEXT,payload TEXT NOT NULL,stamp REAL,seq INTEGER,
                 PRIMARY KEY(machine,tool,session,turn));
             CREATE TABLE IF NOT EXISTS machines(id TEXT PRIMARY KEY,seen REAL,clients TEXT);
+            CREATE TABLE IF NOT EXISTS session_links(machine TEXT,tool TEXT,session TEXT,parent TEXT,child INTEGER,PRIMARY KEY(machine,tool,session));
             ''')
 
     @contextmanager
@@ -110,13 +118,18 @@ class Store:
         with self.db() as db:
             db.execute('INSERT OR REPLACE INTO machines VALUES(?,?,?)',(h.machine_id,time.time(),json.dumps(h.clients)))
 
+    def session_link(self, link: SessionLink):
+        with self.db() as db:
+            db.execute('INSERT OR REPLACE INTO session_links VALUES(?,?,?,?,?)',(link.machine_id,link.tool,link.session_id,link.parent_session_id,int(link.is_subagent or bool(link.parent_session_id))))
+
     def summary(self, now=None):
         now = time.time() if now is None else now
         with self.db() as db:
             quotas = {r[0]:json.loads(r[1]) for r in db.execute('SELECT provider,payload FROM quotas')}
             machines = {r[0]:{'id':r[0],'last_seen':r[1],'online':now-r[1]<60,'clients':json.loads(r[2])} for r in db.execute('SELECT * FROM machines')}
             raw = [json.loads(r[0]) for r in db.execute('SELECT payload FROM tasks ORDER BY stamp DESC,seq DESC')]
-        tasks, seen, history = [],set(),[]
+            links={(r[0],r[1],r[2]):(r[3],bool(r[4])) for r in db.execute('SELECT * FROM session_links')}
+        tasks, seen, history, subtasks = [],set(),[],[]
         for task in raw:
             key = (task['machine_id'],task['tool'],task['session_id'])
             terminal = task['status'] in ('completed','interrupted','failed')
@@ -133,7 +146,21 @@ class Store:
             elif task['tool']=='chatgpt' and machine['clients'].get('chatgpt')!='connected': display='unknown'
             task['display_status']=display
             task['status_label']=LABELS[display]
+            parent,child=links.get(key,(None,False))
+            if child:
+                visited={task['session_id']}
+                while parent and parent not in visited:
+                    visited.add(parent)
+                    ancestor=links.get((task['machine_id'],task['tool'],parent))
+                    if not ancestor or not ancestor[1] or not ancestor[0]:break
+                    parent=ancestor[0]
+                task['parent_session_id']=parent
+                (history if terminal else subtasks).append(task)
+                continue
             tasks.append(task)
         tasks.sort(key=lambda t:(PRIORITY.get(t['status'],3),-t['occurred_at']))
         for q in quotas.values(): q['stale']=now-q['fetched_at']>900
-        return {'now':now,'quotas':quotas,'machines':list(machines.values()),'tasks':tasks,'history':history[:100]}
+        for task in tasks:
+            task['subtask_count']=sum(t['machine_id']==task['machine_id'] and t['tool']==task['tool'] and t.get('parent_session_id')==task['session_id'] for t in subtasks)
+        screen_tasks=[t for t in tasks if t['status'] not in ('completed','interrupted','failed') or now-t['occurred_at']<300]
+        return {'now':now,'quotas':quotas,'machines':list(machines.values()),'tasks':tasks,'screen_tasks':screen_tasks,'subtasks':subtasks,'history':history[:100]}

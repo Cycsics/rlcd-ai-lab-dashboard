@@ -30,6 +30,7 @@ def db():
     CREATE TABLE IF NOT EXISTS session_times(tool TEXT,id TEXT,stamp REAL,PRIMARY KEY(tool,id));
     CREATE TABLE IF NOT EXISTS pending_inputs(session TEXT PRIMARY KEY,call_id TEXT);
     CREATE TABLE IF NOT EXISTS rejected(id TEXT PRIMARY KEY,path TEXT,body TEXT,http_status INTEGER);
+    CREATE TABLE IF NOT EXISTS reported_links(session TEXT PRIMARY KEY,signature TEXT);
     ''')
     try:
         with conn: yield conn
@@ -109,6 +110,24 @@ def clients():
         return {'codex':'connected' if 'codex.exe' in names else 'closed','qoder':'connected' if 'qoder.exe' in names else 'closed'}
     except Exception: return {'codex':'unknown','qoder':'unknown'}
 
+def report_session_metadata(meta):
+    session=meta.get('id')
+    if not session:return
+    source=meta.get('source',{})
+    if isinstance(source,str):
+        try:source=json.loads(source)
+        except ValueError:source={'subagent':True} if source.startswith('subagent') else {}
+    sub=source.get('subagent') if isinstance(source,dict) else None
+    spawn=sub.get('thread_spawn',{}) if isinstance(sub,dict) else {}
+    parent=meta.get('parent_thread_id') or (spawn.get('parent_thread_id') if isinstance(spawn,dict) else None)
+    value={'machine_id':config()['machine_id'],'tool':'codex','session_id':session,'parent_session_id':parent,'is_subagent':bool(parent or sub is not None)}
+    signature=json.dumps(value,sort_keys=True)
+    with db() as conn:
+        old=conn.execute('SELECT signature FROM reported_links WHERE session=?',(session,)).fetchone()
+        if old and old[0]==signature:return
+        conn.execute('INSERT OR REPLACE INTO reported_links VALUES(?,?)',(session,signature))
+        conn.execute('INSERT INTO queue VALUES(?,?,?)',(str(uuid.uuid4()),'session',json.dumps(value)))
+
 def scan_codex():
     directory=Path(os.environ.get('CODEX_HOME',Path.home()/'.codex'))/'sessions'
     if not directory.exists(): return
@@ -118,12 +137,13 @@ def scan_codex():
         with db() as conn: row=conn.execute('SELECT offset FROM offsets WHERE path=?',(str(file),)).fetchone()
         offset=row[0] if row else 0
         size=file.stat().st_size
-        if size==offset: continue
         with file.open('rb') as f:
             try: meta=json.loads(f.readline()).get('payload',{})
             except ValueError: continue
             session=meta.get('id'); project=Path(meta.get('cwd') or '').name
             if not session: continue
+            report_session_metadata(meta)
+            if size==offset:continue
             if offset>size: offset=0
             if not offset and size>256000:
                 f.seek(size-256000);f.readline()

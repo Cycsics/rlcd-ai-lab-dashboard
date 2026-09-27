@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import threading
-from monitor_store import TaskEvent, Heartbeat
+from monitor_store import TaskEvent, Heartbeat, SessionLink
 
 class LocalMonitor:
     def __init__(self, monitor):
@@ -28,6 +28,7 @@ class LocalMonitor:
             def report(path,payload):
                 if path=='task': return {'accepted':self.monitor.store.event(TaskEvent(**payload))}
                 if path=='heartbeat': self.monitor.store.heartbeat(Heartbeat(**payload));return {'ok':True}
+                if path=='session': self.monitor.store.session_link(SessionLink(**payload));return {'ok':True}
                 raise ValueError('Unsupported local report')
             agent.send=report
             hooks=[(Path(os.environ.get('CODEX_HOME',Path.home()/'.codex'))/'hooks.json','codex'),(Path.home()/'.qoder/settings.json','qoder')]

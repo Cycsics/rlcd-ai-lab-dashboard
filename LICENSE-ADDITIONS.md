@@ -15,6 +15,7 @@ The independent connection UI `server/monitor_connections.js` and connection tes
 ## MIT License — independent additions only
 
 The independent ChatGPT bridge tests in `server/tests/test_monitor_chatgpt.py` are also included in this scope.
+The independent subagent grouping tests in `server/tests/test_monitor_subagents.py` are also included.
 
 Copyright (c) 2026 Cycsics
 

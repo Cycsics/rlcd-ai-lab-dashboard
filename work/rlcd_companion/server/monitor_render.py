@@ -123,7 +123,7 @@ def render_monitor(summary, environment, settings, fmt='png'):
         renewal=price.get('next_renewal_date') or next_renewal_date(price,dt.date())
         renewal=f'{int(renewal[5:7])}/{int(renewal[8:10])}续费' if renewal else '续费待填'
         text(x,141,f'{cost} · {renewal}',10,width)
-    tasks=summary['tasks']; machines=summary['machines']
+    tasks=summary.get('screen_tasks',summary['tasks']); machines=summary['machines']
     online=sum(m['online'] for m in machines)
     running=sum(t['display_status']=='running' for t in tasks)
     waiting=sum(t['display_status'].startswith('waiting') for t in tasks)

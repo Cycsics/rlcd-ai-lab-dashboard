@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import Field, field_validator
 from datetime import date
-from monitor_store import Store, Quota, TaskEvent, Heartbeat, StrictModel, Provider
+from monitor_store import Store, Quota, TaskEvent, Heartbeat, SessionLink, StrictModel, Provider
 from monitor_collectors import collect, CollectorError
 from monitor_render import render_monitor
 from monitor_periods import billing_periods
@@ -256,6 +256,9 @@ class Monitor:
         @router.post('/api/ingest/heartbeat')
         def heartbeat(request:Request,payload:Heartbeat):
             authorized(request);self.store.heartbeat(payload);return {'ok':True}
+        @router.post('/api/ingest/session')
+        def session(request:Request,payload:SessionLink):
+            authorized(request);self.store.session_link(payload);return {'ok':True}
         @router.post('/api/lab-package')
         def package(request:Request,payload:Pairing):
             local_request(request)
