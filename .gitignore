@@ -1,0 +1,47 @@
+# Local secrets and generated firmware config
+work/rlcd_companion/firmware/rlcd_client/config.h
+work/rlcd_companion/server/config.yaml
+
+# Runtime logs and generated frames
+*.log
+*.err.log
+work/rlcd_companion/server/frame.bin
+work/rlcd_companion/server/preview.png
+work/rlcd_companion/rlcd_tunnel.log
+
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+work/rlcd_companion/server/.venv/
+
+# Local tool cache. Prefer documenting install steps for public users.
+work/tools/bin/arduino-cli
+work/tools/bin/
+work/tools/arduino/install*.log
+work/rlcd_companion/firmware/build/
+work/rlcd_companion/firmware/backups/
+work/rlcd_companion/server/data/
+work/rlcd_companion/agent/config.json
+work/rlcd_companion/agent/.venv/
+*.sqlite3*
+work/rlcd_companion/agent/monitor_collectors.py
+work/rlcd_companion/agent/monitor_store.py
+
+# Draft outputs from earlier local exploration
+outputs/
+monitor-preview.png
+
+# Credentials, generated binaries and private deployment bundles
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.bin
+*.elf
+*.zip
+*.sqlite*
+**/data/
+**/backups/
+**/.venv/

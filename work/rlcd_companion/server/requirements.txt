@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pillow
+pytest
+httpx
+pyyaml
+tzdata
+

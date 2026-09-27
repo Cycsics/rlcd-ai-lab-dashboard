@@ -1,0 +1,17 @@
+timezone: Asia/Shanghai
+
+weather:
+  latitude: 0.0
+  longitude: 0.0
+
+feishu:
+  enabled: false
+  cli_path: /opt/homebrew/bin/lark-cli
+  message_window_minutes: 15
+
+display:
+  width: 400
+  height: 300
+
+ai:
+  coding_stale_minutes: 8
