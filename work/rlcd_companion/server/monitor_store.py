@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
-Provider = Literal['codex', 'glm', 'qoder']
+Provider = Literal['codex', 'glm', 'qoder', 'claude', 'grok', 'api1', 'api2', 'api3']
 TaskState = Literal['running', 'waiting_approval', 'waiting_input', 'completed', 'interrupted', 'failed', 'idle', 'unknown']
 LABELS = {'running':'执行中','waiting_approval':'等你确认','waiting_input':'等你输入','completed':'本轮完成','interrupted':'已中断','failed':'执行失败','idle':'空闲','unknown':'状态未知','offline':'电脑离线'}
 PRIORITY = {'waiting_approval':0,'waiting_input':0,'interrupted':1,'failed':1,'running':2,'unknown':3,'completed':4,'idle':5}
@@ -25,6 +25,12 @@ class Window(StrictModel):
     resets_at: int | None = Field(None, ge=0)
     expires_at: int | None = Field(None, ge=0)
 
+class Balance(StrictModel):
+    currency: str = Field('USD',max_length=12)
+    remaining: float | None = None
+    used: float | None = Field(None,ge=0)
+    total: float | None = Field(None,ge=0)
+
 class Quota(StrictModel):
     provider: Provider
     account: str = Field(min_length=1, max_length=100)
@@ -32,6 +38,8 @@ class Quota(StrictModel):
     windows: list[Window] = Field(default_factory=list, max_length=8)
     plan: str = Field('', max_length=80)
     error: str = Field('', max_length=160)
+    kind: Literal['subscription','api'] = 'subscription'
+    balances: list[Balance] = Field(default_factory=list,max_length=8)
 
 class TaskEvent(StrictModel):
     event_id: str = Field(min_length=1, max_length=160)

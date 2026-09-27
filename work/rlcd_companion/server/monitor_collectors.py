@@ -131,6 +131,12 @@ def normalize_glm(payload,account):
 
 def collect(provider,settings):
     account=settings.get('account') or 'default'
+    if provider in ('api1','api2','api3'):
+        from monitor_api import collect_api
+        return collect_api(provider,settings)
+    if provider in ('claude','grok'):
+        from monitor_subscription import collect_subscription
+        return collect_subscription(provider,settings)
     if provider=='codex': return normalize_codex(rpc_codex(),account)
     if provider=='qoder': return normalize_qoder(qoder_subprocess(settings.get('token',''),settings.get('region','global')),account)
     token=settings.get('token','')

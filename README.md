@@ -2,7 +2,7 @@
 
 **把本机 AI 额度和任务进度，放到桌面上的一块小屏幕。**
 
-面向 Waveshare ESP32-S3-RLCD-4.2 的 400 × 300 黑白看板，支持 Codex、GLM Coding Plan 和 Qoder。默认监控运行服务的这台 Windows 电脑，也可添加局域网或外网设备。
+面向 Waveshare ESP32-S3-RLCD-4.2 的 400 × 300 黑白看板，提供 **订阅额度版** 和 **API 余额版**。默认监控运行服务的这台 Windows 电脑，也可添加局域网或外网设备。
 
 ![虚拟额度、虚拟任务与 Codex 宠物](docs/monitor-demo.png)
 
@@ -59,6 +59,28 @@ work/rlcd_companion/server/.venv/Scripts/python.exe -m pip install -r work/rlcd_
 - **天气**：公开配置不包含实际坐标。需要时仅在本机 `config.yaml` 填写。
 
 停止和诊断分别使用 **stop-dashboard.cmd**、**diagnose-dashboard.cmd**。开发板烧录与连接见 [Windows 部署说明](docs/windows-monitor.md)。
+
+## 订阅版与 API 版
+
+网页“屏幕版本”可手动切换两种布局。订阅版默认 Codex、GLM、Qoder，也可从五个平台中选择三个；API 版独立显示三个 API 账户的余额和币种，接口返回时同时显示已用与总额。两种版本都保留任务状态和宠物，不自动轮播。
+
+![API 余额版：全部为虚拟数据](docs/api-demo.png)
+
+在“更多订阅与 API 账户”展开连接设置，填写后点击“保存并测试”，核对结果后启用自动查询。新增账户默认关闭；密钥留空保留已有值，不回显。平台暂未返回的数值显示未知，多币种分别显示，不跨币种相加。
+
+| 连接 | 凭据与查询方式 |
+| --- | --- |
+| Claude 订阅 | 读取本机 Claude Code OAuth 登录；也可填写 OAuth Access Token。查询 5 小时及 7 天窗口，过期后需重新登录 |
+| Grok 订阅（实验性） | 读取本机 Grok CLI 登录或填写 OAuth Access Token；参考 CC Switch 的 Grok Build 账单查询，不保证普通网页订阅兼容 |
+| DeepSeek API | API Key，官方余额接口 |
+| 硅基流动 API | API Key，选择中国站或国际站 |
+| OpenRouter API | 管理密钥，需具有 `/credits` 查询权限；余额为累计购买减累计使用 |
+| New API 中转站 | 账户访问令牌、用户 ID、完整 `/api/user/self` 地址；不是模型调用 Key。换算除数按站点规则填写 |
+| 自定义 API | GET + Bearer + JSON 字段路径，例如 `data.balance`；可配置已用、总额、币种及除数 |
+
+连接设计参考 [CC Switch](https://github.com/farion1231/cc-switch)。本项目不执行自定义 JavaScript、不导入 CC Switch 数据库、不发送模型请求。Claude/Grok 接口不是通用 API Key 余额接口，也不自动刷新登录。Grok 使用非公开稳定协议，无法识别响应时显示错误并保留旧快照，不能保证长期兼容。新增订阅采集器已做模拟响应测试，真实账户仍需用户登录后验证。
+
+余额模板依据 [DeepSeek 官方文档](https://api-docs.deepseek.com/api/get-user-balance/)、[硅基流动接口定义](https://github.com/siliconflow/siliconcloud/blob/main/openapi.yaml) 和 [OpenRouter Credits 接口](https://openrouter.ai/docs/api/api-reference/credits/get-credits)。自定义地址只允许 HTTPS（本机或私网可用 HTTP），不跟随重定向，避免凭据转发到其他地址。
 
 ## 电脑 USB 断连后息屏
 

@@ -10,6 +10,8 @@ The independent USB standby policy `firmware/rlcd_client/monitor_power.h` and it
 
 The independent calendar tests in `server/tests/test_monitor_billing.py` are covered by the same MIT license.
 
+The independent connection UI `server/monitor_connections.js` and connection tests `server/tests/test_monitor_connections.py` are covered by the same MIT license. Subscription protocol behavior was researched from MIT-licensed CC Switch (Copyright 2025 JasonYoung); this project independently implements the queries and does not bundle CC Switch code.
+
 ## MIT License — independent additions only
 
 Copyright (c) 2026 Cycsics

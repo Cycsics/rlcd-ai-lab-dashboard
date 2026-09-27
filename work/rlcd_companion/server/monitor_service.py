@@ -23,12 +23,29 @@ from monitor_render import render_monitor
 from monitor_periods import billing_periods
 from monitor_local import LocalMonitor
 from monitor_billing import next_renewal_date
+from monitor_catalog import NAMES,SUBSCRIPTIONS,APIS
+from monitor_api import QueryError,valid_query_url
 
 class AccountSettings(StrictModel):
     region: Literal['global','cn'] = 'global'
     enabled: bool = False
     account: str = Field('default',min_length=1,max_length=100)
     token: str | None = Field(None,max_length=4096)
+    name: str = Field('',max_length=20)
+    template: Literal['deepseek','siliconflow','openrouter','newapi','custom'] = 'deepseek'
+    query_url: str = Field('',max_length=500)
+    user_id: str = Field('',max_length=80,pattern=r'^[\w.-]*$')
+    balance_path: str = Field('balance',max_length=100,pattern=r'^[\w.]+$')
+    used_path: str = Field('',max_length=100,pattern=r'^[\w.]*$')
+    total_path: str = Field('',max_length=100,pattern=r'^[\w.]*$')
+    currency: str = Field('USD',max_length=12,pattern=r'^[A-Za-z¥$€]+$')
+    divisor: float = Field(1,gt=0,le=1000000000000)
+
+    @field_validator('query_url')
+    @classmethod
+    def query_address(cls,value):
+        if value and not valid_query_url(value): raise ValueError('请输入不含凭据、查询参数的 HTTPS 地址，私有网络允许 HTTP')
+        return value
 
 class Price(StrictModel):
     amount: float | None = Field(None,ge=0,le=1000000)
@@ -46,17 +63,30 @@ class PowerSettings(StrictModel):
     usb_sleep_enabled: bool = True
     usb_sleep_minutes: int = Field(5,ge=0,le=1440,strict=True)
 
+class DisplaySettings(StrictModel):
+    mode: Literal['subscription','api'] = 'subscription'
+    subscriptions: list[Provider] = Field(default_factory=lambda:['codex','glm','qoder'],min_length=3,max_length=3)
+
+    @field_validator('subscriptions')
+    @classmethod
+    def three_subscriptions(cls,value):
+        if len(set(value))!=3 or any(p not in SUBSCRIPTIONS for p in value): raise ValueError('请选择三个不同的订阅平台')
+        return value
+
 class Settings(StrictModel):
     accounts: dict[Provider,AccountSettings] = Field(default_factory=dict)
     prices: dict[Provider,Price] = Field(default_factory=dict)
     power: PowerSettings | None = None
+    display: DisplaySettings | None = None
 
 class Pairing(StrictModel):
     server_url: str = Field(max_length=200)
     machine_id: str = Field('lab-pc',min_length=1,max_length=80,pattern=r'^[\w.-]+$')
 
 def account_signature(cfg):
-    return (cfg.get('enabled',False),cfg.get('account','default'),cfg.get('region','global'),cfg.get('token') or '')
+    result=AccountSettings.model_validate(cfg).model_dump()
+    result['token']=result['token'] or ''
+    return result
 
 def local_request(request):
     if not request.client or request.client.host not in ('127.0.0.1','::1','testclient'):
@@ -87,12 +117,16 @@ class Monitor:
         with self.lock:
             result=copy.deepcopy(self.settings)
         result.setdefault('power',PowerSettings().model_dump())
+        result.setdefault('display',DisplaySettings().model_dump())
         for price in result.get('prices',{}).values():
             price.setdefault('auto_renewal',True)
             price['next_renewal_date']=next_renewal_date(price)
-        for p in ('codex','glm','qoder'):
+        for p in NAMES:
             cfg=result.setdefault('accounts',{}).setdefault(p,{'enabled':False,'account':'default'})
             cfg['configured']=bool(cfg.pop('token',None)) or p=='codex'
+            if p in ('claude','grok'):
+                from monitor_subscription import credential_path
+                cfg['configured']=cfg['configured'] or credential_path(p).exists()
         return result
 
     def save(self,settings):
@@ -106,10 +140,14 @@ class Monitor:
                 if token is None: token=old.get('token','')
                 value['token']=token; updated['accounts'][p]=value
                 if account_signature(old)!=account_signature(value): refresh=True
-                if old.get('account','default')!=value['account'] or old.get('region','global')!=value['region']:
+                old_identity=account_signature(old);new_identity=account_signature(value)
+                for key in ('enabled','name'):
+                    old_identity.pop(key);new_identity.pop(key)
+                if old_identity!=new_identity:
                     reset_providers.append(p)
             updated.setdefault('prices',{}).update({k:v.model_dump() for k,v in settings.prices.items()})
             if settings.power is not None: updated['power']=settings.power.model_dump()
+            if settings.display is not None: updated['display']=settings.display.model_dump()
             temp=self.settings_file.with_suffix('.tmp')
             temp.write_text(json.dumps(updated,ensure_ascii=False,indent=2),encoding='utf-8')
             temp.replace(self.settings_file)
@@ -127,9 +165,9 @@ class Monitor:
         try: q=collect(p,cfg)
         except Exception as exc:
             # Do not serialize upstream responses, tokens or command arguments into UI/logs.
-            reason={'glm':'GLM 查询失败，请核对个人套餐 Key 和网络','qoder':'Qoder 查询失败，请核对 SDK 与同一账户授权','codex':'Codex 查询失败，请检查本机登录和程序版本'}[p]
-            if isinstance(exc,CollectorError): reason=str(exc)
-            q=Quota(provider=p,account=cfg.get('account','default'),fetched_at=time.time(),error=reason)
+            reason={'glm':'GLM 查询失败，请核对个人套餐 Key 和网络','qoder':'Qoder 查询失败，请核对 SDK 与同一账户授权','codex':'Codex 查询失败，请检查本机登录和程序版本'}.get(p,'查询失败，请核对凭据、接口和响应字段')
+            if isinstance(exc,(CollectorError,QueryError)): reason=str(exc)
+            q=Quota(provider=p,account=cfg.get('account','default'),fetched_at=time.time(),error=reason,kind='api' if p in APIS else 'subscription')
         with self.lock:
             # Discard in-flight results for settings changed while a request was running.
             if account_signature(self.settings.get('accounts',{}).get(p,{}))!=account_signature(cfg): return
@@ -180,6 +218,10 @@ class Monitor:
         def index(request:Request):
             local_request(request)
             return FileResponse(Path(__file__).parent/'monitor.html')
+        @router.get('/connections.js')
+        def connections_script(request:Request):
+            local_request(request)
+            return FileResponse(Path(__file__).parent/'monitor_connections.js',media_type='application/javascript',headers={'Cache-Control':'no-store'})
         @router.get('/api/monitor')
         def summary(request:Request):
             local_request(request)
@@ -190,6 +232,12 @@ class Monitor:
         @router.post('/api/refresh')
         def refresh(request:Request):
             local_request(request);self.wake.set();return {'ok':True}
+        @router.post('/api/connections/{provider}/test')
+        def connection_test(request:Request,provider:Provider):
+            local_request(request)
+            with self.lock: cfg=copy.deepcopy(self.settings.get('accounts',{}).get(provider,{}))
+            self.collect_one(provider,cfg)
+            return self.store.summary()['quotas'].get(provider,{})
         @router.post('/api/ingest/quota')
         def quota(request:Request,payload:Quota):
             authorized(request)
@@ -219,7 +267,7 @@ class Monitor:
             with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
                 for file in root.iterdir():
                     if file.is_file() and file.suffix in ('.py','.cmd','.txt','.md'): z.write(file,file.name)
-                for name in ('monitor_collectors.py','monitor_store.py'):
+                for name in ('monitor_collectors.py','monitor_store.py','monitor_api.py','monitor_subscription.py'):
                     z.write(Path(__file__).parent/name,name)
                 config={'server_url':payload.server_url.rstrip('/'),'machine_id':payload.machine_id,'token':self.token}
                 z.writestr('config.json',json.dumps(config,ensure_ascii=False,indent=2))

@@ -8,7 +8,27 @@ from monitor_billing import next_renewal_date
 from pet import draw_pixel_pet
 from renderer import _font, _draw_text, _pack_image, TZ
 
-NAMES={'codex':'Codex','glm':'GLM','qoder':'Qoder'}
+from monitor_catalog import NAMES,APIS
+
+def draw_api_column(text,x,q,width,now):
+    rows=q.get('balances',[]) if q else []
+    if not rows:
+        text(x,58,'查询失败' if q and q.get('error') else '未连接',18,width)
+        text(x,90,'请配置 API 余额',11,width)
+    else:
+        for index,b in enumerate(rows[:2]):
+            y=54+index*43
+            text(x,y,'剩余 '+b.get('currency',''),11,width)
+            value=b.get('remaining')
+            value=f'{value:,.2f}' if value is not None else '未知'
+            size=20
+            while size>10 and _font(size).getlength(value)>width:size-=1
+            text(x,y+16,value,size,width)
+        if len(rows)==1:
+            b=rows[0];used=b.get('used');total=b.get('total')
+            text(x,99,'已用 '+(f'{used:,.2f}' if used is not None else '未知'),11,width)
+            text(x,118,'总额 '+(f'{total:,.2f}' if total is not None else '未知'),11,width)
+    text(x,141,'按量计费 · '+('需更新' if q and (q.get('stale') or q.get('error')) else 'API 余额'),10,width)
 
 def window_date_label(provider, window):
     if window.get('not_applicable'): return 'Pro · 无独立5h窗口'
@@ -53,11 +73,18 @@ def render_monitor(summary, environment, settings, fmt='png'):
     text(6,4,f'{dt:%H:%M} {dt.month}/{dt.day} {weather} {indoor} 电{battery}%',12)
     for y in (25,155,279): d.line((0,y,399,y),fill=0)
     for x in (133,266): d.line((x,26,x,155),fill=0)
-    for index,provider in enumerate(NAMES):
+    display=settings.get('display',{})
+    providers=list(APIS) if display.get('mode')=='api' else display.get('subscriptions',['codex','glm','qoder'])
+    for index,provider in enumerate(providers):
         x=index*133+7; q=summary['quotas'].get(provider); width=119
         d.rectangle((index*133+1,27,index*133+131,48),fill=0)
-        d.text((x,30),NAMES[provider],font=_font(15),fill=1,anchor='lt')
-        d.text((x+65,34),periods[provider]['label'] if provider in periods else '剩余',font=_font(10),fill=1,anchor='lt')
+        title=settings.get('accounts',{}).get(provider,{}).get('name') or NAMES[provider]
+        while _font(14).getlength(title)>86:title=title[:-1]
+        d.text((x,30),title,font=_font(14),fill=1,anchor='lt')
+        d.text((x+(94 if provider in APIS else 65),34),'API' if provider in APIS else periods[provider]['label'] if provider in periods else '剩余',font=_font(10),fill=1,anchor='lt')
+        if provider in APIS:
+            draw_api_column(text,x,q,width,now)
+            continue
         windows=q.get('windows',[]) if q else []
         if provider=='codex' and windows:
             short=next((w for w in windows if w['label'] in ('5小时','300分钟','5h')),None)
@@ -126,7 +153,7 @@ def render_monitor(summary, environment, settings, fmt='png'):
         draw_pixel_pet(d,(304,190,394,266),'idle',1)
     freshest=max((m['last_seen'] for m in machines),default=None)
     footer=f'在线核对 {datetime.fromtimestamp(freshest,TZ):%H:%M:%S}' if freshest else '等待本机状态'
-    stale=sum(q.get('stale',False) or bool(q.get('error')) for q in summary['quotas'].values())
+    stale=sum(q.get('stale',False) or bool(q.get('error')) for p,q in summary['quotas'].items() if p in providers)
     if stale: footer+=f' · {stale}项额度需更新'
     if len(tasks)>3: footer+=f' · 另{len(tasks)-3}项见网页'
     text(6,283,footer,11)
