@@ -2,6 +2,8 @@
 
 先按根目录 README 建立 Python 环境。电脑须保持运行；服务默认端口 8787。配置、令牌、SQLite 均排除在 Git 之外。
 
+启动看板即可监控本机，任务采集与服务一起运行。首次使用在 Codex 审核 Hooks，并重启 Qoder。本机无需远程安装包。需要其他设备时，再在网页展开可选远程接入，填写局域网、私有网络或已配置的 HTTPS 地址。
+
 ## 固件
 
 从 Arduino 官方发行页安装 Arduino CLI，将 `arduino-cli.exe` 放到 `work/tools/bin/`，然后安装 ESP32 平台：

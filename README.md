@@ -1,8 +1,8 @@
 # RLCD AI Lab Dashboard
 
-**把 AI 额度和远程任务，放到桌面上的一块小屏幕。**
+**把本机 AI 额度和任务进度，放到桌面上的一块小屏幕。**
 
-面向 Waveshare ESP32-S3-RLCD-4.2 的 400 × 300 黑白看板，支持 Codex、GLM Coding Plan 和 Qoder，配合 Windows 服务与远程采集程序使用。
+面向 Waveshare ESP32-S3-RLCD-4.2 的 400 × 300 黑白看板，支持 Codex、GLM Coding Plan 和 Qoder。默认监控运行服务的这台 Windows 电脑，也可添加局域网或外网设备。
 
 ![虚拟额度、虚拟任务与 Codex 宠物](docs/monitor-demo.png)
 
@@ -16,7 +16,8 @@
 | GLM | Coding Plan 额度、进度条、高峰/非高峰提示 |
 | Qoder | 套餐与附加包的 **剩余 / 总额**、套餐到期日、夜惠提示 |
 | 订阅 | 手动填写的金额、币种和下次续费日期 |
-| 远程任务 | 执行、等待确认/输入、本轮完成、中断及离线状态 |
+| 本机任务 | 执行、等待确认/输入、本轮完成、中断及离线状态 |
+| 可选设备 | 接入局域网或外网电脑，与本机一起显示 |
 | 环境 | 时间、可选天气、板载温湿度和电量 |
 
 固定单屏、静音，无弹窗遮挡。屏幕约 3 秒取图，网页任务每 30 秒核对，额度每 5 分钟采集；超过 15 分钟未更新会显示过期状态。
@@ -24,14 +25,12 @@
 ## 工作方式
 
 ```text
-本机账户额度 ──────────────┐
-                          ↓
-远程 Windows → 私有网络 → 看板服务 → ESP32-S3 屏幕
-                          ↓
-                     本机配置与详情页
+本机 Codex / Qoder 任务 + 账户额度 → 看板服务 → ESP32-S3 屏幕
+                                      ↑
+可选：其他 Windows → 局域网 / 私有网络 / HTTPS
 ```
 
-看板电脑负责渲染，远程电脑只上报任务状态元数据。事件持久化、去重并支持断网重传；15 秒心跳，60 秒无心跳标记离线。完整任务列表在网页查看。
+本机采集随看板服务启动，无需额外下载代理或配置网络地址。本机额度仅采集一次，任务标记为“本机”。可选远程采集程序只上报状态元数据，支持持久化、去重与断网重传；15 秒心跳，60 秒无心跳标记离线。完整任务列表在网页查看。
 
 ## Windows 快速开始
 
@@ -51,6 +50,8 @@ work/rlcd_companion/server/.venv/Scripts/python.exe -m pip install -r work/rlcd_
 
 双击 **start-dashboard.cmd**，打开 <http://127.0.0.1:8787/>。
 
+服务会自动准备本机任务采集与 Hooks。首次启动后，在 Codex 客户端审核并信任 Hooks，重启 Qoder；不绕过客户端信任设置。无需安装远程采集包。
+
 - **Codex**：先在本机官方客户端登录，采集程序只读账户额度。
 - **GLM**：在配置页输入个人 Coding Plan Key。
 - **Qoder**：选择令牌所属的 qoder.cn 或 qoder.com，再填入 Personal Access Token，两站令牌不能混用。
@@ -59,9 +60,13 @@ work/rlcd_companion/server/.venv/Scripts/python.exe -m pip install -r work/rlcd_
 
 停止和诊断分别使用 **stop-dashboard.cmd**、**diagnose-dashboard.cmd**。开发板烧录与连接见 [Windows 部署说明](docs/windows-monitor.md)。
 
-## 连接远程电脑
+## 可选：添加局域网或外网设备
 
-在网页输入看板电脑的私有网络地址，下载配对安装包。复制到远程 Windows，解压到固定目录，运行 `install.cmd`。
+展开网页中的“添加远程设备（可选）”，填写目标设备能访问的看板地址，下载配对包，复制到目标 Windows 并运行 `install.cmd`。
+
+- 同一局域网：填写看板电脑的局域网地址。
+- 不同网络：可用 ZeroTier 等私有网络，也支持已部署的 HTTPS 反向代理地址。
+- 安装包配置的是**看板服务地址**，不是被监控电脑的地址；远程电脑主动上报。
 
 按客户端要求审核 Codex Hooks，重启 Qoder，再运行 `diagnose.cmd` 检查。监控程序不会批准操作、回答问题或控制 AI 任务。“本轮完成”只表示当前回复结束，不代表整个项目完成。
 
@@ -80,13 +85,13 @@ work/rlcd_companion/server/.venv/Scripts/python.exe -m pip install -r work/rlcd_
 
 公开仓库仅包含源代码、模板和演示图。真实凭据、Wi-Fi 配置、账户快照、任务数据库、日志、配对包及固件备份均应保留在本机，并已加入忽略规则。
 
-远程上报使用 Bearer 鉴权，配置接口只允许本机访问。请通过可信局域网或私有网络使用，不要直接暴露到公网。文档中的 `192.0.2.x` 为文档专用示例地址，不是部署地址。
+远程上报使用 Bearer 鉴权，配置接口只允许本机访问。外网建议通过私有网络连接；使用 HTTPS 反向代理时仅转发 `/api/ingest/`，不要开放设置、配对、预览与其他接口。不要直接映射明文 HTTP 端口到公网。文档中的 `192.0.2.x` 为文档专用示例地址，不是部署地址。
 
 ## 开发与测试
 
 ```text
 work/rlcd_companion/server/              服务、采集器、渲染与测试
-work/rlcd_companion/agent/               远程采集与 Hooks 安装器
+work/rlcd_companion/agent/               本机与可选远程采集、Hooks
 work/rlcd_companion/firmware/rlcd_client/ Arduino 固件
 work/rlcd_companion/scripts/             启动、诊断与部署工具
 work/vendor/                            硬件库及其许可文件

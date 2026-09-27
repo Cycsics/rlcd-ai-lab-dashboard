@@ -240,3 +240,39 @@ def test_renewal_date_validation_and_persistence(tmp_path):
     assert c.put('/api/settings',json=body).status_code==422
     body['prices']['qoder']['renewal_date']=None
     assert c.put('/api/settings',json=body).status_code==200
+
+def test_optional_remote_addresses(tmp_path):
+    c,m=client(tmp_path)
+    for address in ['http://192.0.2.10:8787','https://dashboard.example.com']:
+        assert c.post('/api/lab-package',json={'server_url':address,'machine_id':'remote'}).status_code==200
+    for address in ['http://8.8.8.8','http://127.0.0.1:8787','https://user:password@example.com','https://example.com/?token=secret']:
+        assert c.post('/api/lab-package',json={'server_url':address,'machine_id':'remote'}).status_code==422
+
+def test_local_agent_reports_without_remote_install(tmp_path,monkeypatch):
+    import monitor_local
+    monkeypatch.setenv('CODEX_HOME',str(tmp_path/'codex'))
+    monkeypatch.setattr(Path,'home',classmethod(lambda cls:tmp_path/'home'))
+    m=Monitor(tmp_path/'dashboard')
+    # Finish after the first successful heartbeat; never inspect real session records.
+    original=importlib.util.module_from_spec
+    def module(spec):
+        result=original(spec)
+        loader=spec.loader.exec_module
+        def execute(mod):
+            loader(mod)
+            mod.scan_codex=lambda:None
+            mod.clients=lambda:{'codex':'connected','qoder':'closed'}
+            def run(stop_event):
+                mod.send('heartbeat',{'machine_id':'local-pc','clients':mod.clients()})
+                mod.record('codex','local-session','running','demo')
+                mod.flush()
+            mod.run=run
+        spec.loader.exec_module=execute
+        return result
+    monkeypatch.setattr(importlib.util,'module_from_spec',module)
+    m.local.start();m.local.shutdown()
+    assert not m.local.error
+    summary=m.store.summary()
+    assert summary['machines'][0]['id']=='local-pc'
+    assert summary['tasks'][0]['display_status']=='running'
+    assert (tmp_path/'codex/hooks.json').exists()

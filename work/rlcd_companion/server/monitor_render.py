@@ -102,11 +102,11 @@ def render_monitor(summary, environment, settings, fmt='png'):
     done=sum(t['display_status']=='completed' for t in tasks)
     interrupted=sum(t['display_status'] in ('interrupted','failed') for t in tasks)
     unknown=sum(t['display_status'] in ('unknown','offline') for t in tasks)
-    text(6,160,f'实验室 · {"在线" if online else "离线"}',14,115)
+    text(6,160,f'任务 · {"在线" if online else "离线"}',14,115)
     text(115,162,f'执行{running} 待办{waiting} 完成{done} 中断{interrupted}',10,179)
     if not machines:
-        text(12,194,'等待实验室电脑连接',16)
-        text(12,225,'请在电脑端连接实验室',12,270)
+        text(12,194,'本机采集正在启动',16)
+        text(12,225,'请检查客户端与 Hooks',12,270)
     elif not tasks:
         text(12,197,'暂无任务事件',18)
         text(12,229,'客户端状态见电脑详情页',12)
@@ -115,7 +115,7 @@ def render_monitor(summary, environment, settings, fmt='png'):
         text(6,y,f"{NAMES[t['tool']]} · {t['project'] or '未命名项目'}",12,174)
         text(190,y+3,t['status_label'],14,94)
         age=max(0,int(now-t['occurred_at']))
-        text(6,y+16,f"{t['machine_id']}  {age//60}分钟前" if age>=60 else f"{t['machine_id']}  刚刚",10,174)
+        text(6,y+16,f"{'本机' if t['machine_id']=='local-pc' else t['machine_id']}  {age//60}分钟前" if age>=60 else f"{'本机' if t['machine_id']=='local-pc' else t['machine_id']}  刚刚",10,174)
     d.line((295,163,295,271),fill=0)
     text(320,170,'Codex',13,74)
     pet_frame=codex_pet_frame()
@@ -124,7 +124,7 @@ def render_monitor(summary, environment, settings, fmt='png'):
     else:
         draw_pixel_pet(d,(304,190,394,266),'idle',1)
     freshest=max((m['last_seen'] for m in machines),default=None)
-    footer=f'在线核对 {datetime.fromtimestamp(freshest,TZ):%H:%M:%S}' if freshest else '实验室尚未连接'
+    footer=f'在线核对 {datetime.fromtimestamp(freshest,TZ):%H:%M:%S}' if freshest else '等待本机状态'
     stale=sum(q.get('stale',False) or bool(q.get('error')) for q in summary['quotas'].values())
     if stale: footer+=f' · {stale}项额度需更新'
     if len(tasks)>3: footer+=f' · 另{len(tasks)-3}项见网页'

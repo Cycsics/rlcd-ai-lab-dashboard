@@ -164,7 +164,7 @@ def collect_accounts():
             payload={'provider':provider,'account':settings.get('account','default'),'fetched_at':time.time(),'error':'实验室账户采集失败，请在实验室电脑检查授权','windows':[]}
         enqueue('quota',payload)
 
-def run():
+def run(stop_event=None):
     import threading
     # One agent instance per installation; tasklist does not count this Python helper as Codex.
     import socket
@@ -172,7 +172,7 @@ def run():
     try: guard.bind(('127.0.0.1',port))
     except OSError: return
     quota_at=0; heartbeat_at=0; quota_thread=None
-    while True:
+    while stop_event is None or not stop_event.is_set():
         try:
             scan_codex()
             flush()
@@ -181,7 +181,8 @@ def run():
             if time.monotonic()-quota_at>=300 and (quota_thread is None or not quota_thread.is_alive()):
                 quota_thread=threading.Thread(target=collect_accounts,daemon=True);quota_thread.start();quota_at=time.monotonic()
         except Exception: pass
-        time.sleep(2)
+        if stop_event is None: time.sleep(2)
+        else: stop_event.wait(2)
 
 def merge_hooks(path,tool):
     path.parent.mkdir(parents=True,exist_ok=True)

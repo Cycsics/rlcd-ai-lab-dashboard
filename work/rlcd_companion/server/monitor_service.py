@@ -21,6 +21,7 @@ from monitor_store import Store, Quota, TaskEvent, Heartbeat, StrictModel, Provi
 from monitor_collectors import collect, CollectorError
 from monitor_render import render_monitor
 from monitor_periods import billing_periods
+from monitor_local import LocalMonitor
 
 class AccountSettings(StrictModel):
     region: Literal['global','cn'] = 'global'
@@ -70,6 +71,7 @@ class Monitor:
         self.environment={'weather':'天气--','battery':None,'indoor_temperature_c':None,'indoor_humidity_percent':None}
         self.stop=threading.Event(); self.wake=threading.Event(); self.thread=None
         self.collect_lock=threading.Lock()
+        self.local=LocalMonitor(self)
 
     def public_settings(self):
         with self.lock:
@@ -128,9 +130,11 @@ class Monitor:
 
     def start(self):
         if not self.thread:
+            self.local.start()
             self.thread=threading.Thread(target=self.worker,daemon=True);self.thread.start()
 
-    def shutdown(self): self.stop.set();self.wake.set()
+    def shutdown(self):
+        self.stop.set();self.wake.set();self.local.shutdown()
 
     def image(self,fmt='png',battery=None,temp=None,humidity=None):
         for k,v in [('battery',battery),('indoor_temperature_c',temp),('indoor_humidity_percent',humidity)]:
@@ -149,7 +153,7 @@ class Monitor:
         @router.get('/api/monitor')
         def summary(request:Request):
             local_request(request)
-            return {**self.store.summary(),'billing_periods':billing_periods(time.time()),'settings':self.public_settings(),'environment':self.environment}
+            return {**self.store.summary(),'billing_periods':billing_periods(time.time()),'settings':self.public_settings(),'environment':self.environment,'local_monitor':{'machine_id':'local-pc','error':self.local.error}}
         @router.put('/api/settings')
         def settings(request:Request,payload:Settings):
             local_request(request);self.save(payload);return {'ok':True}
@@ -176,9 +180,11 @@ class Monitor:
             local_request(request)
             url=urlsplit(payload.server_url)
             try: ip=ipaddress.ip_address(url.hostname or '')
-            except ValueError: raise HTTPException(422,'请填写这台电脑的 ZeroTier IP 地址') from None
-            if url.scheme!='http' or not ip.is_private or ip.is_loopback or url.username or url.password or url.query or url.fragment or url.path not in ('','/'):
-                raise HTTPException(422,'请输入 http://本机ZeroTier-IP:8787')
+            except ValueError: ip=None
+            private_http=url.scheme=='http' and ip and ip.is_private and not ip.is_loopback and not ip.is_unspecified
+            secure_remote=url.scheme=='https' and bool(url.hostname)
+            if not (private_http or secure_remote) or url.username or url.password or url.query or url.fragment or url.path not in ('','/'):
+                raise HTTPException(422,'请输入看板的局域网/私有网络 HTTP 地址，或配置好的 HTTPS 地址')
             out=io.BytesIO(); root=Path(__file__).parent.parent/'agent'
             with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
                 for file in root.iterdir():
