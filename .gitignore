@@ -45,3 +45,11 @@ monitor-preview.png
 **/data/
 **/backups/
 **/.venv/
+
+# Private relay configuration and certificates
+**/deployment/
+relay.json
+publisher.json
+supervisor.json
+*.crt
+*.csr

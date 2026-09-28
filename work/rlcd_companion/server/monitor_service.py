@@ -159,7 +159,7 @@ class Monitor:
         if refresh: self.wake.set()
 
     def power_headers(self):
-        with self.lock: power=self.settings.get('power') or PowerSettings().model_dump()
+        with self.lock: power=PowerSettings.model_validate(self.settings.get('power') or {}).model_dump()
         return {'X-RLCD-Usb-Sleep-Enabled':'1' if power['usb_sleep_enabled'] else '0',
                 'X-RLCD-Usb-Sleep-Seconds':str(power['usb_sleep_minutes']*60)}
 
@@ -200,7 +200,8 @@ class Monitor:
 
     def start(self):
         if not self.thread:
-            self.local.start()
+            if os.getenv('RLCD_LOCAL_ENABLED', '1') == '1':
+                self.local.start()
             self.chatgpt.start()
             self.thread=threading.Thread(target=self.worker,daemon=True);self.thread.start()
 

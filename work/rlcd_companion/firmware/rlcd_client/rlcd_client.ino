@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <time.h>
 #include <Wire.h>
 #include <math.h>
 #include <Preferences.h>
@@ -23,6 +25,13 @@ struct WifiNetworkConfig {
 #include "config.h"
 #else
 #include "config.example.h"
+#endif
+
+#ifndef FRAME_BEARER_TOKEN
+#define FRAME_BEARER_TOKEN ""
+#endif
+#ifndef FRAME_CA_CERT
+#define FRAME_CA_CERT ""
 #endif
 
 #define LCD_WIDTH 400
@@ -461,16 +470,44 @@ static bool fetchFrame()
   if (WiFi.status() != WL_CONNECTED) return false;
 
   String url = frameUrlWithTelemetry();
+  WiFiClient plain_client;
+  WiFiClientSecure secure_client;
+  bool secure = url.startsWith("https://");
+  if (secure) {
+    if (strlen(FRAME_CA_CERT) == 0) {
+      noteFrameFetchFailure("HTTPS certificate missing");
+      return false;
+    }
+    if (time(nullptr) < 1700000000) {
+      configTime(0, 0, "ntp.aliyun.com", "pool.ntp.org", "time.cloudflare.com");
+      uint32_t started = millis();
+      while (time(nullptr) < 1700000000 && millis() - started < 10000) delay(100);
+      if (time(nullptr) < 1700000000) {
+        noteFrameFetchFailure("Clock sync required for HTTPS");
+        return false;
+      }
+    }
+    secure_client.setCACert(FRAME_CA_CERT);
+    secure_client.setHandshakeTimeout(8);
+  }
   HTTPClient http;
   http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(HTTP_READ_TIMEOUT_MS);
   http.setReuse(false);
   Serial.printf("GET %s\n", url.c_str());
-  if (!http.begin(url)) {
+  if (!(secure ? http.begin(secure_client, url) : http.begin(plain_client, url))) {
     Serial.println("HTTP begin failed");
     http.end();
     noteFrameFetchFailure("HTTP begin failed");
     return false;
+  }
+  if (strlen(FRAME_BEARER_TOKEN) > 0) {
+    if (!secure) {
+      http.end();
+      noteFrameFetchFailure("Bearer token requires HTTPS");
+      return false;
+    }
+    http.addHeader("Authorization", String("Bearer ") + FRAME_BEARER_TOKEN);
   }
   const char *header_keys[] = {
     "X-RLCD-Pet-State",
@@ -1039,7 +1076,7 @@ void setup()
     drawFrameBuffer();
     playPendingSoundCue();
   } else {
-    drawMessage("Frame fetch failed", "Check Mac service", FRAME_URL);
+    drawMessage("Frame fetch failed", "Check dashboard service", "Retrying connection");
   }
   last_frame_ms = millis();
 }

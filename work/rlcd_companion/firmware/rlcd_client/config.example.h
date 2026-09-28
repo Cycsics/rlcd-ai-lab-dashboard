@@ -16,6 +16,12 @@ static const WifiNetworkConfig WIFI_NETWORKS[] = {
 #define FRAME_URL "http://192.0.2.10:8787/frame.bin"
 #define ACK_URL "http://192.0.2.10:8787/ack"
 
+// Optional HTTPS relay. Put real values only in private config.h.
+// Set FRAME_URL to your HTTPS /frame.bin endpoint and paste its CA PEM here.
+// Tokens are never sent over HTTP; certificate validation cannot be disabled.
+#define FRAME_BEARER_TOKEN ""
+#define FRAME_CA_CERT ""
+
 // 刷新间隔。第一版建议 3000ms，方便看到 AI 状态变化。
 #define FRAME_REFRESH_MS 3000
 

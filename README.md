@@ -170,3 +170,7 @@ cd work/rlcd_companion/server
 - 微雪开发包及第三方库保留各自许可；Codex 名称和截图中的宠物外观属于相应权利人。
 
 新增独立模块采用 MIT 许可，范围见 [LICENSE-ADDITIONS.md](LICENSE-ADDITIONS.md)。复用代码不被此许可重新授权；来源记录见 [原始项目说明](docs/UPSTREAM-README.md)。
+
+### 屏幕与电脑不在同一网络
+
+可选用[私有 HTTPS 画面中继](work/rlcd_companion/relay/README.md)：由采集电脑渲染并上传，屏幕直接取图，无需屏幕所在网络的电脑常驻。包含独立读写令牌、证书验证、过期画面拒绝、温湿度回传及进程守护。默认本机监控方式保持不变。
