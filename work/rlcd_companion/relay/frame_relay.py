@@ -4,6 +4,7 @@ import hmac
 import json
 import math
 import ssl
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -33,6 +34,13 @@ def telemetry(query):
 class Relay(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     request_queue_size = 16
+
+    def handle_error(self, request, client_address):
+        # Public endpoints receive plain HTTP probes and clients that disconnect.
+        # Do not log their network addresses or fill logs with TLS handshakes.
+        if isinstance(sys.exc_info()[1], (ssl.SSLError, ConnectionError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
 
     def __init__(self, address, config):
         self.config = config

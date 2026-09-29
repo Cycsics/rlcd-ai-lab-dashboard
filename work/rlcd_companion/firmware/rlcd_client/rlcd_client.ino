@@ -311,7 +311,7 @@ static void noteFrameFetchSuccess()
   consecutive_frame_failures = 0;
 }
 
-static void noteFrameFetchFailure(const char *reason)
+static void noteFrameFetchFailure(const char *reason, bool transport_failure = false)
 {
   if (consecutive_frame_failures < 255) {
     consecutive_frame_failures++;
@@ -324,6 +324,13 @@ static void noteFrameFetchFailure(const char *reason)
                 wifiStatusName(status));
   if (status != WL_CONNECTED) {
     resetWiFiConnection(reason);
+  } else if (transport_failure && consecutive_frame_failures >= 3 &&
+             millis() - last_wifi_reset_ms >= 30000) {
+    // A stale association can report CONNECTED while ARP/TCP no longer works.
+    // Rate-limit reconnection and preserve the last frame. HTTP error responses
+    // (authentication, stale relay, server errors) are not transport failures.
+    consecutive_frame_failures = 0;
+    resetWiFiConnection("Repeated transport failures");
   }
 }
 
@@ -494,7 +501,7 @@ static bool fetchFrame()
   http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(HTTP_READ_TIMEOUT_MS);
   http.setReuse(false);
-  Serial.printf("GET %s\n", url.c_str());
+  Serial.printf("GET %s RSSI=%d dBm\n", url.c_str(), WiFi.RSSI());
   if (!(secure ? http.begin(secure_client, url) : http.begin(plain_client, url))) {
     Serial.println("HTTP begin failed");
     http.end();
@@ -525,7 +532,7 @@ static bool fetchFrame()
   if (status != HTTP_CODE_OK) {
     Serial.printf("HTTP GET failed: %d\n", status);
     http.end();
-    noteFrameFetchFailure("HTTP GET failed");
+    noteFrameFetchFailure("HTTP GET failed", status < 0);
     return false;
   }
   String next_pet_state = http.header("X-RLCD-Pet-State");
@@ -583,7 +590,7 @@ static bool fetchFrame()
 
   if (total != FRAME_BYTES) {
     Serial.printf("Incomplete frame: %d/%d\n", total, FRAME_BYTES);
-    noteFrameFetchFailure("Incomplete frame");
+    noteFrameFetchFailure("Incomplete frame", true);
     return false;
   }
   frame_fetch_counter = (frame_fetch_counter + 1) % 100;
@@ -607,6 +614,7 @@ static bool fetchFrame()
   last_good_frame_ms = millis();
   if (monitor_layout) pending_sound_cue = "none";
   else queueSoundCueIfNeeded(alert_key, sound_cue);
+  Serial.printf("Frame complete: %d bytes\n", total);
   noteFrameFetchSuccess();
   return true;
 }
